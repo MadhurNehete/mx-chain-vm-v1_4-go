@@ -27,3 +27,10 @@ jobs:
     - name: Test
       run: |
         make test
+    - name: Debug folders
+      run: |
+        pwd
+        find . -type d | grep exchange
+    - name: Find wasm
+      run: |
+        find . -name "*.wasm"
