@@ -19,11 +19,6 @@ jobs:
       uses: actions/setup-go@v5
       with:
         go-version: ${{ matrix.go-version }}
-    - name: Build exchange contract
-      run: |
-        cd test/contracts/exchange
-        mxpy contract build
-
     - name: Test
       run: |
         make test
