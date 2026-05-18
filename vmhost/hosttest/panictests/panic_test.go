@@ -31,7 +31,7 @@ func TestExecution_PanicInGoWithSilentWasmer_SIGSEGV(t *testing.T) {
 	}
 
 	input := test.CreateTestContractCallInputBuilder().
-		WithGasProvided(10000000).
+		WithGasProvided(1000000).
 		WithFunction(increment).
 		Build()
 
@@ -63,7 +63,7 @@ func TestExecution_PanicInGoWithSilentWasmer_SIGFPE(t *testing.T) {
 	}
 
 	input := test.CreateTestContractCallInputBuilder().
-		WithGasProvided(10000000).
+		WithGasProvided(1000000).
 		WithFunction(increment).
 		Build()
 
@@ -91,7 +91,7 @@ func TestExecution_PanicInGoWithSilentWasmer_Timeout(t *testing.T) {
 	}
 
 	input := test.CreateTestContractCallInputBuilder().
-		WithGasProvided(10000000).
+		WithGasProvided(1000000).
 		WithFunction(increment).
 		Build()
 
@@ -123,7 +123,7 @@ func TestExecution_PanicInGoWithSilentWasmer_TimeoutAndSIGSEGV(t *testing.T) {
 	}
 
 	input := test.CreateTestContractCallInputBuilder().
-		WithGasProvided(10000000).
+		WithGasProvided(1000000).
 		WithFunction(increment).
 		Build()
 
@@ -138,7 +138,7 @@ func TestExecution_PanicInGoWithSilentWasmer_TimeoutAndSIGSEGV(t *testing.T) {
 }
 
 func TestExecution_MultipleHostsPanicInGoWithSilentWasmer_TimeoutAndSIGSEGV(t *testing.T) {
-	numParallel := 100
+	numParallel := 300
 	hosts := make([]vmhost.VMHost, numParallel)
 	blockchains := make([]*mock.BlockchainHookStub, numParallel)
 	for k := 0; k < numParallel; k++ {
@@ -165,7 +165,7 @@ func TestExecution_MultipleHostsPanicInGoWithSilentWasmer_TimeoutAndSIGSEGV(t *t
 	for k := 0; k < numParallel; k++ {
 		go func(idx int) {
 			input := test.CreateTestContractCallInputBuilder().
-				WithGasProvided(10000000).
+				WithGasProvided(1000000).
 				WithFunction(increment).
 				Build()
 			// Ensure that no more panic
