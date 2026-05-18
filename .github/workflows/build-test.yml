@@ -25,7 +25,4 @@ jobs:
         submodules: recursive
     - name: Test
       run: |
-          make test
-    - name: Debug folders
-      run: |
-        find . -type d | grep exchange
+        make test
