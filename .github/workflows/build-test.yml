@@ -19,9 +19,7 @@ jobs:
       uses: actions/setup-go@v5
       with:
         go-version: ${{ matrix.go-version }}
-    - name: Test
-      run: |
-        make test
+    
     - name: Debug folders
       run: |
         pwd
@@ -29,3 +27,6 @@ jobs:
     - name: Find wasm
       run: |
         find . -name "*.wasm"
+    - name: Test
+      run: |
+        make test
