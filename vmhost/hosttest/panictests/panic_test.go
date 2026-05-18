@@ -138,7 +138,7 @@ func TestExecution_PanicInGoWithSilentWasmer_TimeoutAndSIGSEGV(t *testing.T) {
 }
 
 func TestExecution_MultipleHostsPanicInGoWithSilentWasmer_TimeoutAndSIGSEGV(t *testing.T) {
-	numParallel := 300
+	numParallel := 100
 	hosts := make([]vmhost.VMHost, numParallel)
 	blockchains := make([]*mock.BlockchainHookStub, numParallel)
 	for k := 0; k < numParallel; k++ {

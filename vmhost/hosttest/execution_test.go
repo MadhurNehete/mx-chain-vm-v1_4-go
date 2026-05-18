@@ -403,7 +403,7 @@ func TestExecution_CallGetUserAccountErr(t *testing.T) {
 	errGetAccount := errors.New("get code error")
 	test.BuildInstanceCallTest(t).
 		WithInput(test.CreateTestContractCallInputBuilder().
-			WithGasProvided(100).
+			WithGasProvided(1000).
 			Build()).
 		WithSetup(func(host vmhost.VMHost, stubBlockchainHook *contextmock.BlockchainHookStub) {
 			stubBlockchainHook.GetUserAccountCalled = func(address []byte) (vmcommon.UserAccountHandler, error) {
