@@ -1,0 +1,39 @@
+# ide settings
+.idea/
+
+# Binaries for programs and plugins
+*.exe
+*.exe~
+
+# Test binary, build with `go test -c`
+*.test
+
+# Output of the go coverage tool, specifically when used with LiteIDE
+*.out
+
+/vendor
+
+/arwen/debug
+/cmd/arwen/arwen
+/vmserver/testdata/db
+/cmd/vmserver/vmserver
+/cmd/vmserver/db
+/ipc/tests/testdata/streams
+/ipc/tests/arwen
+
+# VSCode settings
+.vscode
+
+tags
+*.backup
+
+# SmartContract compilation artefacts
+*.hex*
+*.ll
+*.o
+wasm32-unknown-unknown
+test/contracts/**/target
+test/contracts/**/wasm/target
+
+# Mac
+**/.DS_Store

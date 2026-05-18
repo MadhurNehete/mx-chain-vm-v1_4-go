@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Security Audit Report — mx-chain-vm-v1_4-go</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Arial', sans-serif;
+    font-size: 13px;
+    color: #000;
+    background: #fff;
+    padding: 40px 50px;
+    line-height: 1.6;
+  }
+  h1 { font-size: 20px; font-weight: bold; margin-bottom: 6px; }
+  h2 { font-size: 16px; font-weight: bold; margin-top: 28px; margin-bottom: 10px; border-bottom: 1px solid #000; padding-bottom: 4px; }
+  h3 { font-size: 14px; font-weight: bold; margin-top: 20px; margin-bottom: 8px; }
+  h4 { font-size: 13px; font-weight: bold; margin-top: 14px; margin-bottom: 6px; }
+  p { margin-bottom: 10px; }
+  hr { border: none; border-top: 1px solid #000; margin: 20px 0; }
+  table { width: 100%; border-collapse: collapse; margin-bottom: 14px; font-size: 12px; }
+  th, td { border: 1px solid #000; padding: 6px 10px; text-align: left; }
+  th { background: #f0f0f0; font-weight: bold; }
+  pre { background: transparent; border: 1px solid #000; padding: 10px 14px; font-family: 'Courier New', monospace; font-size: 11px; white-space: pre-wrap; word-break: break-all; margin-bottom: 12px; }
+  code { font-family: 'Courier New', monospace; font-size: 11px; }
+  .meta { font-size: 12px; margin-bottom: 4px; }
+  .status-resolved { color: #000; font-weight: bold; }
+  .status-pending  { color: #000; font-weight: bold; }
+  .footer { margin-top: 40px; font-size: 11px; font-style: italic; text-align: center; }
+</style>
+</head>
+<body>
+
+<h1>Security Audit Report: VM Host Critical Vulnerabilities</h1>
+<p class="meta"><strong>Report ID:</strong> MX-VM-V1.4-AUDIT-001</p>
+<p class="meta"><strong>Project:</strong> <code>mx-chain-vm-v1_4-go</code></p>
+
+<hr>
+
+<h2>1. Executive Summary</h2>
+<p>This report documents critical security vulnerabilities identified in the WebAssembly (WASM) Virtual Machine host implementation (<code>mx-chain-vm-v1_4-go</code>). These vulnerabilities reside in the host-hook layer (EEI) and can be exploited to crash validator nodes or halt the network.</p>
+<p>Four real vulnerabilities were identified. Two have been fully remediated. Two are pending remediation.</p>
+
+<hr>
+
+<h2>2. Vulnerability Details</h2>
+
+<h3>2.1 [REAL-4] Unbounded BigInt Shift Left (Host OOM)</h3>
+<table>
+  <tr><th>Attribute</th><th>Details</th></tr>
+  <tr><td><strong>Severity</strong></td><td><strong>CRITICAL</strong></td></tr>
+  <tr><td><strong>Location</strong></td><td><code>vmhost/vmhooks/bigIntOps.go:v1_4_bigIntShl</code></td></tr>
+  <tr><td><strong>Impact</strong></td><td>Host Process Termination (OOM)</td></tr>
+  <tr><td><strong>Remediation</strong></td><td class="status-resolved">RESOLVED</td></tr>
+</table>
+
+<h4>Technical Analysis</h4>
+<p>The <code>v1_4_bigIntShl</code> hook exports the BigInt shift-left operation to the WASM guest. It accepts an <code>int32</code> value for the number of bits to shift.</p>
+<pre>// Location: vmhost/vmhooks/bigIntOps.go
+func v1_4_bigIntShl(context unsafe.Pointer, destinationHandle, opHandle int32, bits int32) {
+    // ... gas charged for base op only ...
+    dest.Lsh(a, uint(bits)) // VULNERABILITY: Unbounded allocation pre-patch
+    managedType.ConsumeGasForBigIntCopy(dest)
+}</pre>
+<p>If a contract provides a <code>bits</code> value of <code>2,147,483,647</code> (MaxInt32), the <code>math/big</code> library attempts to allocate a buffer large enough to hold 2 billion bits (~256 MB), crashing the node with OOM before gas is deducted.</p>
+
+<h4>Recommended Remediation</h4>
+<p>Add a hard ceiling on the <code>bits</code> parameter and charge gas pre-emptively based on the prospective result byte size before calling <code>dest.Lsh</code>:</p>
+<pre>if bits > 512000 {
+    _ = vmhost.WithFault(vmhost.ErrNotEnoughGas, context, runtime.BigIntAPIErrorShouldFailExecution())
+    return
+}
+prospectiveByteLen := (uint64(a.BitLen()) + uint64(bits)) / 8
+managedType.ConsumeGasForThisIntNumberOfBytes(int(prospectiveByteLen))
+dest.Lsh(a, uint(bits))</pre>
+
+<h4>Remediation Applied</h4>
+<p>A hard ceiling of 512,000 bits was added. Gas is now charged pre-emptively based on the prospective result size before <code>dest.Lsh</code> executes.</p>
+
+<hr>
+
+<h3>2.2 [REAL-6] Unmetered Large Memory Allocation (OOM/DoS)</h3>
+<table>
+  <tr><th>Attribute</th><th>Details</th></tr>
+  <tr><td><strong>Severity</strong></td><td><strong>HIGH</strong></td></tr>
+  <tr><td><strong>Location</strong></td><td><code>vmhost/vmhooks/baseOps.go:getArgumentsFromMemory</code></td></tr>
+  <tr><td><strong>Impact</strong></td><td>Host Memory Exhaustion / CPU Spike</td></tr>
+  <tr><td><strong>Remediation</strong></td><td class="status-resolved">RESOLVED</td></tr>
+</table>
+
+<h4>Technical Analysis</h4>
+<p>The <code>getArgumentsFromMemory</code> helper loads complex argument arrays from WASM linear memory into the host before gas is deducted.</p>
+<pre>// Location: vmhost/vmhooks/baseOps.go
+func getArgumentsFromMemory(host vmhost.VMHost, numArguments int32, ...) {
+    argumentsLengthData, _ := runtime.MemLoad(argumentsLengthOffset, numArguments*4) // Unmetered
+    data, _ := runtime.MemLoadMultiple(dataOffset, argumentLengths)                  // Unmetered
+    return data, totalArgumentBytes, nil
+    // Gas deducted by caller AFTER return -- too late
+}</pre>
+<p>An attacker can specify huge argument arrays to exhaust host memory before any gas is charged.</p>
+
+<h4>Recommended Remediation</h4>
+<p>Implement gas-first loading: compute prospective allocation sizes and deduct gas <strong>before</strong> any <code>MemLoad</code>, failing closed if gas is insufficient:</p>
+<pre>// Charge for metadata array before loading
+metaGas := math.MulUint64(uint64(numArguments)*4, metering.GasSchedule().BaseOperationCost.DataCopyPerByte)
+metering.UseGas(metaGas)
+if metering.GasLeft() == 0 {
+    return nil, 0, vmhost.ErrNotEnoughGas
+}
+// Then load metadata, compute total data size, charge for data payload before loading</pre>
+
+<h4>Remediation Applied</h4>
+<p>Gas-first loading: gas is now pre-emptively checked and deducted for both the metadata slice and the argument data slice before any memory allocation occurs.</p>
+
+<hr>
+
+<h3>2.3 [REAL-7] ESDT Nil Pointer Dereference (Consensus-Halting DoS)</h3>
+<table>
+  <tr><th>Attribute</th><th>Details</th></tr>
+  <tr><td><strong>Severity</strong></td><td><strong>CRITICAL</strong></td></tr>
+  <tr><td><strong>Location</strong></td><td><code>vmhost/vmhooks/baseOps.go:v1_4_getESDTBalance</code>, <code>v1_4_getESDTTokenData</code></td></tr>
+  <tr><td><strong>Impact</strong></td><td>Deterministic nil pointer panic — crashes all validator nodes validating the block</td></tr>
+  <tr><td><strong>Remediation</strong></td><td class="status-pending">PENDING</td></tr>
+</table>
+
+<h4>Technical Analysis</h4>
+<p>Both <code>v1_4_getESDTBalance</code> and <code>v1_4_getESDTTokenData</code> call <code>getESDTDataFromBlockchainHook</code>, which delegates to <code>blockchain.GetESDTToken</code>. When queried for a non-existent token or an account with no ESDT balance, the hook returns <code>(nil, nil)</code> — no error, but a nil pointer.</p>
+<pre>// Location: vmhost/vmhooks/baseOps.go
+esdtData, err := getESDTDataFromBlockchainHook(...)
+if vmhost.WithFault(err, ...) { return -1 } // err is nil, so this passes
+
+// CRASH VECTOR: esdtData is nil here
+err = runtime.MemStore(resultOffset, esdtData.Value.Bytes()) // nil dereference PANIC</pre>
+<p>And in <code>v1_4_getESDTTokenData</code>:</p>
+<pre>value := managedType.GetBigIntOrCreate(valueHandle)
+value.Set(esdtData.Value) // nil dereference PANIC</pre>
+<p>Note: Sibling hooks such as <code>v1_4_getESDTNFTNameLength</code> already correctly guard against this condition.</p>
+
+<h4>Exploit Scenario</h4>
+<p>1. Attacker deploys a contract that calls <code>getESDTBalance</code> with a non-existent token ID.<br>
+2. <code>GetESDTToken</code> returns <code>(nil, nil)</code> — no error.<br>
+3. Host dereferences <code>esdtData.Value</code> — runtime panic.<br>
+4. Every validator processing this block crashes on the same transaction.<br>
+5. Result: <strong>Network halt.</strong></p>
+
+<h4>Recommended Remediation</h4>
+<pre>if esdtData == nil || esdtData.Value == nil {
+    vmhost.WithFaultIfFailAlwaysActive(vmhost.ErrNilESDTData, context,
+        runtime.BaseOpsErrorShouldFailExecution())
+    return 0
+}</pre>
+
+<hr>
+
+<h3>2.4 [REAL-8] ESDT Roles Parser Index Out of Bounds (State-Triggered Host Panic)</h3>
+<table>
+  <tr><th>Attribute</th><th>Details</th></tr>
+  <tr><td><strong>Severity</strong></td><td><strong>HIGH</strong></td></tr>
+  <tr><td><strong>Location</strong></td><td><code>vmhost/vmhooks/eei_helpers.go:getESDTRoles</code></td></tr>
+  <tr><td><strong>Impact</strong></td><td>Unhandled index out of range panic — crashes validator nodes</td></tr>
+  <tr><td><strong>Remediation</strong></td><td class="status-pending">PENDING</td></tr>
+</table>
+
+<h4>Technical Analysis</h4>
+<p>The <code>getESDTRoles</code> function parses a custom binary format read directly from blockchain storage. It makes no bounds checks on the byte array, trusting storage to always be well-formed.</p>
+<pre>// Location: vmhost/vmhooks/eei_helpers.go
+func getESDTRoles(dataBuffer []byte) int64 {
+    for currentIndex &lt; valueLen {
+        currentIndex += 1                             // skip \n
+
+        roleLen := int(dataBuffer[currentIndex])      // CRASH: out of bounds if buffer ends here
+        currentIndex += 1
+
+        endIndex := currentIndex + roleLen
+        roleName := dataBuffer[currentIndex:endIndex] // CRASH: slice out of bounds
+        currentIndex = endIndex
+    }
+}</pre>
+<p>If storage returns a truncated, empty, or malformed byte buffer — due to state corruption, incomplete writes, or protocol migration — this parser triggers a <code>runtime error: index out of range</code> panic.</p>
+
+<h4>Recommended Remediation</h4>
+<pre>for currentIndex &lt; valueLen {
+    if currentIndex+1 &gt; valueLen { break }
+    currentIndex += 1
+
+    if currentIndex+1 &gt; valueLen { break }
+    roleLen := int(dataBuffer[currentIndex])
+    currentIndex += 1
+
+    endIndex := currentIndex + roleLen
+    if endIndex &gt; valueLen { break }
+    roleName := dataBuffer[currentIndex:endIndex]
+    currentIndex = endIndex
+    result |= roleFromByteArray(roleName)
+}</pre>
+
+<hr>
+
+<h3>2.5 [REAL-9] Managed ESDT API Nil Pointer Dereference (Consensus-Halting DoS)</h3>
+<table>
+  <tr><th>Attribute</th><th>Details</th></tr>
+  <tr><td><strong>Severity</strong></td><td><strong>CRITICAL</strong></td></tr>
+  <tr><td><strong>Location</strong></td><td><code>vmhost/vmhooks/managedei.go:v1_4_managedGetESDTBalance</code>, <code>v1_4_managedGetESDTTokenData</code></td></tr>
+  <tr><td><strong>Impact</strong></td><td>Deterministic nil pointer panic — crashes all validator nodes validating the block</td></tr>
+  <tr><td><strong>Remediation</strong></td><td class="status-pending">PENDING</td></tr>
+</table>
+
+<h4>Technical Analysis</h4>
+<p>The managed API variants of the ESDT balance and token data hooks suffer the <strong>same nil dereference vulnerability</strong> as REAL-7, but via the modern managed API path used by all contracts compiled with the latest MultiversX SDK.</p>
+<pre>// Location: vmhost/vmhooks/managedei.go
+esdtToken, err := blockchain.GetESDTToken(address, tokenID, uint64(nonce))
+if err != nil {
+    _ = vmhost.WithFault(...)
+    return
+}
+// No nil check — GetESDTToken can return (nil, nil)
+value.Set(esdtToken.Value) // PANIC: nil pointer dereference</pre>
+<p>And in <code>v1_4_managedGetESDTTokenData</code>:</p>
+<pre>value.Set(esdtToken.Value)                               // PANIC if esdtToken == nil
+managedType.SetBytes(propertiesHandle, esdtToken.Properties) // PANIC if esdtToken == nil</pre>
+<p>Unlike REAL-7 (legacy flat API), modern contracts compiled with the current MultiversX Rust SDK call the <strong>managed API</strong> exclusively, making this variant <strong>more frequently reachable</strong> in a production network.</p>
+
+<h4>Recommended Remediation</h4>
+<pre>if esdtToken == nil || esdtToken.Value == nil {
+    vmhost.WithFaultIfFailAlwaysActive(vmhost.ErrNilESDTData, context,
+        runtime.BaseOpsErrorShouldFailExecution())
+    return
+}</pre>
+
+<hr>
+
+<h3>2.6 [REAL-10] Partial Nil Guard in BigInt ESDT External Balance Hook</h3>
+<table>
+  <tr><th>Attribute</th><th>Details</th></tr>
+  <tr><td><strong>Severity</strong></td><td><strong>HIGH</strong></td></tr>
+  <tr><td><strong>Location</strong></td><td><code>vmhost/vmhooks/bigIntOps.go:v1_4_bigIntGetESDTExternalBalance</code></td></tr>
+  <tr><td><strong>Impact</strong></td><td>Nil pointer panic on <code>esdtData.Value</code> — crashes validator nodes</td></tr>
+  <tr><td><strong>Remediation</strong></td><td class="status-pending">PENDING</td></tr>
+</table>
+
+<h4>Technical Analysis</h4>
+<p><code>v1_4_bigIntGetESDTExternalBalance</code> has an incomplete nil guard. It correctly checks if the <code>esdtData</code> struct pointer is nil, but does not check if the <code>Value</code> field within the struct is nil before dereferencing it.</p>
+<pre>// Location: vmhost/vmhooks/bigIntOps.go
+if esdtData == nil {   // ✅ struct nil check present
+    return
+}
+
+value := managedType.GetBigIntOrCreate(resultHandle)
+value.Set(esdtData.Value) // ❌ PANIC: esdtData.Value can still be nil</pre>
+<p>The <code>esdt.ESDigitalToken</code> struct may have a non-nil pointer with a nil <code>Value</code> field when an account exists but has a zero or uninitialised token balance. This passes the struct nil guard but panics on field access.</p>
+
+<h4>Recommended Remediation</h4>
+<pre>if esdtData == nil || esdtData.Value == nil {
+    return
+}</pre>
+
+<hr>
+
+<h2>3. Remediation Summary</h2>
+<table>
+  <tr><th>ID</th><th>Title</th><th>Severity</th><th>Status</th></tr>
+  <tr><td>REAL-4</td><td>Unbounded BigInt Shift Left (OOM)</td><td>CRITICAL</td><td>RESOLVED</td></tr>
+  <tr><td>REAL-6</td><td>Unmetered Memory Allocation (OOM/DoS)</td><td>HIGH</td><td>RESOLVED</td></tr>
+  <tr><td>REAL-7</td><td>ESDT Nil Pointer Dereference — Legacy API (Consensus Halt)</td><td>CRITICAL</td><td>PENDING</td></tr>
+  <tr><td>REAL-8</td><td>ESDT Roles Parser Out-of-Bounds (Node Panic)</td><td>HIGH</td><td>PENDING</td></tr>
+  <tr><td>REAL-9</td><td>ESDT Nil Pointer Dereference — Managed API (Consensus Halt)</td><td>CRITICAL</td><td>PENDING</td></tr>
+  <tr><td>REAL-10</td><td>Partial Nil Guard in BigInt ESDT Balance Hook</td><td>HIGH</td><td>PENDING</td></tr>
+</table>
+
+<div class="footer">Generated by Antigravity Security Audit Suite</div>
+
+</body>
+</html>
