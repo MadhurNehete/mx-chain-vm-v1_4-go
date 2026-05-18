@@ -6,4 +6,4 @@
 [![LoC](https://tokei.rs/b1/github/multiversx/mx-chain-vm-v1_4-go?category=code)](https://github.com/multiversx/mx-chain-vm-v1_4-go)
 [![codecov](https://codecov.io/gh/multiversx/mx-chain-vm-v1_4-go/branch/master/graph/badge.svg?token=MYS5EDASOJ)](https://codecov.io/gh/multiversx/mx-chain-vm-v1_4-go)
 
-WASM-based Virtual Machine for running MultiversX Smart Contracts.
+WASM-based Virtual Machine for running MultiversX Smart Contracts..
