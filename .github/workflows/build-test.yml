@@ -19,14 +19,13 @@ jobs:
       uses: actions/setup-go@v5
       with:
         go-version: ${{ matrix.go-version }}
-    
-    - name: Debug folders
-      run: |
-        pwd
-        find . -type d | grep exchange
-    - name: Find wasm
-      run: |
-        find . -name "*.wasm"
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
     - name: Test
       run: |
-        make test
+          make test
+    - name: Debug folders
+      run: |
+        find . -type d | grep exchange
