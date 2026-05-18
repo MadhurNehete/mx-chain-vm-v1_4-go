@@ -31,7 +31,7 @@ func TestExecution_PanicInGoWithSilentWasmer_SIGSEGV(t *testing.T) {
 	}
 
 	input := test.CreateTestContractCallInputBuilder().
-		WithGasProvided(1000000).
+		WithGasProvided(10000000).
 		WithFunction(increment).
 		Build()
 
@@ -63,7 +63,7 @@ func TestExecution_PanicInGoWithSilentWasmer_SIGFPE(t *testing.T) {
 	}
 
 	input := test.CreateTestContractCallInputBuilder().
-		WithGasProvided(1000000).
+		WithGasProvided(10000000).
 		WithFunction(increment).
 		Build()
 
@@ -91,7 +91,7 @@ func TestExecution_PanicInGoWithSilentWasmer_Timeout(t *testing.T) {
 	}
 
 	input := test.CreateTestContractCallInputBuilder().
-		WithGasProvided(1000000).
+		WithGasProvided(10000000).
 		WithFunction(increment).
 		Build()
 
@@ -123,7 +123,7 @@ func TestExecution_PanicInGoWithSilentWasmer_TimeoutAndSIGSEGV(t *testing.T) {
 	}
 
 	input := test.CreateTestContractCallInputBuilder().
-		WithGasProvided(1000000).
+		WithGasProvided(10000000).
 		WithFunction(increment).
 		Build()
 
@@ -165,7 +165,7 @@ func TestExecution_MultipleHostsPanicInGoWithSilentWasmer_TimeoutAndSIGSEGV(t *t
 	for k := 0; k < numParallel; k++ {
 		go func(idx int) {
 			input := test.CreateTestContractCallInputBuilder().
-				WithGasProvided(1000000).
+				WithGasProvided(10000000).
 				WithFunction(increment).
 				Build()
 			// Ensure that no more panic
